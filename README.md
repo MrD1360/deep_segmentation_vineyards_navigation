@@ -1,3 +1,4 @@
+
 # Semantic Segmentation Controller for Vineyards
 A control system that exploits semantic segmentation properties to properly drive the mobile platform along vineyard rows.
 
