@@ -1,5 +1,20 @@
-
 #!/usr/bin/env python3
+
+# Copyright 2021 Simone Cerrato and Diego Aghi. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
 import os
 import tensorflow as tf
 
@@ -13,23 +28,13 @@ from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge
 import time
 
-from itertools import groupby
-from operator import itemgetter
 
 # Global variables
-global t0
-t0 = 0
-global depth_flag
 depth_flag = 0
-global depth_frame
 depth_frame = Image()
-global bridge
 bridge = CvBridge()
-global pub
 pub = 0
-global buffer_counter   #every 3 frames it resets. It is necessary to use multiple consecutive frames
 buffer_counter=0
-global output_buffer   #every 3 frames it resets. It is necessary to use multiple consecutive frames
 output_buffer =0
 r,c=224,224   #rows and column dim
 
@@ -50,7 +55,7 @@ tf.config.experimental.set_visible_devices(gpus[0], 'XLA_GPU')
 
 model_file = 'model_mobile_seg_fp32.tflite'
 
-#define functions to import custom model
+#Define functions to use the tflite model
 
 interpreter = tf.lite.Interpreter(model_file)
 interpreter.allocate_tensors()
@@ -65,32 +70,32 @@ def output_tensor(interpreter):
     output_data = interpreter.tensor(output_details['index'])()
     return output_data
     
-    
 def input_tensor(interpreter):
     """Returns input tensor view as numpy array of shape (height, width, 3)."""
     tensor_index = interpreter.get_input_details()[0]['index']
     return interpreter.tensor(tensor_index)()[0]
 
-#to normalize the frame
+#Normalize the frame
 def normalizeImage(frame):
 	frame = (frame/255.)
 	return frame
 
-#function to filter out the noise
+#Filter out the noise
 def get_rid_of_noise(frame):
+	'''Taking into account the values from the index of maximum to the bottom of the image, 
+	the first time the value of the noise function goes below a certain threshold,
+	in this case 3%, everything beyond that index it is considered to be noise'''
 
 	#compute the sum of the 1 per rows 
 	noise=np.zeros(frame.shape[0])
 
 	noise = np.sum(frame,axis=1)
 
-	max_ind= np.argmax(noise)  #find the index of the max value
+	#find the index of the max value
+	max_ind= np.argmax(noise)  
 
-	#from the maximum to the bottom of the image, the first time the value of the noise function goes below a certain threshold
-	# 3%, everything beyond that index it is considered to be noise
-	
-
-	sigma_=3/100   #first threshold
+	#threshold
+	sigma_=3/100   
 	cut_noise_index=0
 
 	t_counter=1
@@ -102,9 +107,8 @@ def get_rid_of_noise(frame):
 
 	return (max_ind+cut_noise_index)
 
-#get x value for the controller functions (lin vel e ang vel)
+#Get pixel value for the controller functions
 def get_x_value(histo):
-	#declaring global variables
 	global previous_command, init_state
 
 	#Command initialization
@@ -112,35 +116,38 @@ def get_x_value(histo):
 	
 	ERROR_FLAG=0
 
-	#preprocessing 
-	zero_ind=np.where(histo==0)[0]  #index (x value) of the zeros
+	# Look for column indexes where histo==0 
+	zero_ind=np.where(histo==0)[0]
 		
 	cluster_list=[]
-	last_index=0 #starting index of the last cluster
+	#starting index of the last cluster
+	last_index = 0 
 	
 	for index in range(len(zero_ind)-1):
 
-		if not (zero_ind[index+1]-zero_ind[index])==1:   #if the difference is greater than 1 then it is a different cluster        
-			if len(zero_ind[last_index:index+1])>3: #filtering from small clusters (noise)
+		#If the difference is greater than 1 then it is a different cluster
+		if not (zero_ind[index+1]-zero_ind[index])==1:
+
+			#Filtering from small clusters (noise)
+			if len(zero_ind[last_index:index+1])>3:
 				cluster_list.append(zero_ind[last_index:index+1].tolist())
 			last_index=index+1 #to append the last cluster
+
 	if len(zero_ind[last_index:])>3:
 		cluster_list.append(zero_ind[last_index:].tolist())
 	
 	zero_ind = np.array(cluster_list).flatten()
 
+	#If only one cluster is detected
 	if len(cluster_list)==1:
-		#NO anomaly:
 		command_x=int((zero_ind[-1]-zero_ind[0])/2)+zero_ind[0]
 		previous_command=command_x
 		init_state=False
 		print(command_x,"command_x")
 	
 	else:
-		#anomaly detected
-
-		if init_state:   #if init state
-			#removing clusters in the sides
+		if init_state:
+			#Removing clusters in the sides
 			for cluster in cluster_list:
 				cluster_removal=False
 				for ind in cluster:
@@ -152,7 +159,7 @@ def get_x_value(histo):
 
 			if len(cluster_list)>0:
 
-				#if there is more than one cluster take the largest
+				#If there is more than one cluster take the largest
 				final_cluster=max(cluster_list, key=len )
 				command_x=int((final_cluster[-1]-final_cluster[0])/2)+final_cluster[0]
 				previous_command=command_x
@@ -176,9 +183,7 @@ def get_x_value(histo):
 
 				command_x=int((cluster_list[p_c_index][-1]-cluster_list[p_c_index][0])/2)+cluster_list[p_c_index][0]
 				previous_command=command_x
-				print(command_x,"command_x")#IF =1 an error has occured and the next set of frames must be taken
-
-			
+				print(command_x,"command_x")
 
 			else: 
 				#if previous command is not in one of the clusters
@@ -206,7 +211,7 @@ def get_x_value(histo):
 
 	return command_x,ERROR_FLAG
 
-#controller functions
+#Controller function
 def controller_velocities(delta,w,max_Ang_Vel,max_Lin_Vel):
 	#parabolic control 
 	if delta > 0:                  #  LEFT SIDE
@@ -219,7 +224,7 @@ def controller_velocities(delta,w,max_Ang_Vel,max_Lin_Vel):
 	lin_vel_command = float(max_Lin_Vel*(1-((delta*delta)/((w/2)*(w/2)))))
 
 
-	return (lin_vel_command,ang_vel_command)   #true command
+	return (lin_vel_command,ang_vel_command)
 
 def depth_callback(data):
 	global depth_flag,depth_frame
@@ -300,7 +305,7 @@ def image_callback(data):
 			message.linear.x = 0.5*lin_vel
 			message.angular.z = ang_vel
 
-		#if ERROR_FLAG=1 it publishes 0 command velocities
+		#If ERROR_FLAG=1 it publishes 0 command velocities
 		pub.publish(message)
 
 if __name__=="__main__":
