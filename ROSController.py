@@ -36,11 +36,12 @@ bridge = CvBridge()
 pub = 0
 buffer_counter=0
 output_buffer =0
-r,c=224,224   #rows and column dim
+#Input network shape
+r,c=224,224
 
-#init variables for control function
+#Init variables for control function
 init_state=True
-previous_command=int(r/2) #default value
+previous_command=int(r/2)
 
 '''
 #uncomment to use GPU
