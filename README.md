@@ -6,7 +6,6 @@ A control system that exploits semantic segmentation properties to properly driv
 - _Model\_training\_and\_validation\_\_segmentation.ipynb_ is a jupyter notebook used for training and model validation.
 - _model\_mobile\_seg\_fp32.tflite_ is the obtained model weights optimized for running on CPU.
 - _ROSController.py_ is a ROS implementation of the controller.
-- utils/keras\_applications is a directory containing an implementation of the MobileNetV3.
 
 
 ## Test dataset
