@@ -9,7 +9,7 @@ A control system that exploits semantic segmentation properties to properly driv
 
 
 ## Test dataset
-Test dataset available at: 10.5281/zenodo.4601472
+Test dataset available at: https://zenodo.org/record/4601472 (DOI: 10.5281/zenodo.4601472)
 
 
 ## Dependencies and libraries
